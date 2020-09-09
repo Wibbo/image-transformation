@@ -44,9 +44,17 @@ def get_maximum_height(point_array):
     return max(height1, height2)
 
 
-def get_image_corners(source_image, image_cnt):
-    epsilon = 0.02 * cv2.arcLength(image_cnt, True)
-    approx_corners = cv2.approxPolyDP(image_cnt, epsilon, True)
+def get_end_image_corners(start_corners, end_corners):
+    w = get_maximum_width(start_corners)
+    h = get_maximum_height(end_corners)
+
+    corners = ([(0, 0), (w-1, 0), (0, h-1), (w-1, h-1)])
+    return corners, h,w
+
+
+def get_start_image_corners(source_image, image_contours):
+    epsilon = 0.02 * cv2.arcLength(image_contours, True)
+    approx_corners = cv2.approxPolyDP(image_contours, epsilon, True)
     cv2.drawContours(source_image, approx_corners, -1, (163, 255, 119), 20)
     approx_corners = sorted(np.concatenate(approx_corners).tolist())
 
@@ -83,6 +91,33 @@ def create_binary_image(image):
     return new_image
 
 
+def transform_image(source_image, start_corners, end_corners):
+
+    h, w = source_image.shape[:2]
+    H, _ = cv2.findHomography(start_corners, end_corners, method=cv2.RANSAC, ransacReprojThreshold=3.0)
+    print('\nThe homography matrix is: \n', H)
+    un_warped = cv2.warpPerspective(source_image, H, (w, h), flags=cv2.INTER_LINEAR)
+
+    # plot
+
+    f, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 8))
+    # f.subplots_adjust(hspace=.2, wspace=.05)
+    ax1.imshow(source_image)
+    ax1.set_title('Original Image')
+
+    x = [start_corners[0][0], start_corners[2][0], start_corners[3][0], start_corners[1][0], start_corners[0][0]]
+    y = [start_corners[0][1], start_corners[2][1], start_corners[3][1], start_corners[1][1], start_corners[0][1]]
+
+    ax2.imshow(source_image)
+    ax2.plot(x, y, color='yellow', linewidth=3)
+    ax2.set_ylim([h, 0])
+    ax2.set_xlim([0, w])
+    ax2.set_title('Target Area')
+
+    plt.show()
+    return un_warped
+
+
 # Load an image and resize it.
 test_image = load_image('card3.jpg', 800, 600)
 
@@ -99,7 +134,9 @@ contours_restricted = sorted(contours, key=cv2.contourArea, reverse=True)[0]
 # Create images including contours and restricted contours.
 cv2.drawContours(contour_image_1, contours, -1, (0, 255, 0), 3)
 cv2.drawContours(contour_image_2, contours_restricted, -1, (0, 255, 0), 3)
-image_corners, corner_array = get_image_corners(corner_image, contours_restricted)
+image_corners, corner_array = get_start_image_corners(corner_image, contours_restricted)
+
+# x = transform_image(test_image, corner_array, )
 
 # Display all interim and final images.
 cv2.imshow('1: The original image', test_image)
