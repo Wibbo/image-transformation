@@ -44,26 +44,53 @@ def get_maximum_height(point_array):
     return max(height1, height2)
 
 
-def get_end_image_corners(start_corners, end_corners):
-    w = get_maximum_width(start_corners)
-    h = get_maximum_height(end_corners)
+def get_end_image_corners(start_corners):
+    """
+    Returns the end coordinates for the corners of the image.
+    :param start_corners:
+    :return:
+    """
+    width = get_maximum_width(start_corners)
+    height = get_maximum_height(start_corners)
+    offset = 30
 
-    corners = ([(0, 0), (w-1, 0), (0, h-1), (w-1, h-1)])
-    return corners, h,w
+    corners = ([(0 + offset, 0 + offset), (width-1 + offset, 0 + offset),
+                (0 + offset, height-1 + offset), (width-1 + offset, height-1 + offset)])
+    return corners, height, width
+
+
+def set_text(source_image, coord_list):
+    """
+    Adds labels to each corner of the image.
+    :param source_image: The image on which to add labels.
+    :param coord_list: A list of coordinates for the label positions.
+    :return: Nothing.
+    """
+    font = cv2.FONT_HERSHEY_PLAIN
+    text_colour = (0, 145, 255)
+
+    for index, coord in enumerate(coord_list):
+        corner_label = 'C' + str(index + 1)
+        cv2.putText(source_image, corner_label, tuple(coord), font, 2, text_colour, 2, cv2.LINE_AA)
 
 
 def get_start_image_corners(source_image, image_contours):
+    """
+    Returns the start coordinates for the corners of the image.
+    :param source_image:
+    :param image_contours:
+    :return:
+    """
     epsilon = 0.02 * cv2.arcLength(image_contours, True)
     approx_corners = cv2.approxPolyDP(image_contours, epsilon, True)
     cv2.drawContours(source_image, approx_corners, -1, (163, 255, 119), 20)
     approx_corners = sorted(np.concatenate(approx_corners).tolist())
 
-    for index, c in enumerate(approx_corners):
-        character = chr(65 + index)
-        cv2.putText(source_image, character, tuple(c), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2, cv2. LINE_8)
-
-    # Rearranging the order of the corner points
+    # Rearrange the order of the corner points to prepare for subsequent processing.
+    # This can be improved and you may need to set the appropriate order based on
+    # how the corners are initially ordered.
     approx_corners = [approx_corners[i] for i in [0, 2, 1, 3]]
+    # approx_corners = [approx_corners[i] for i in [0, 3, 2, 1]]
     return source_image, approx_corners
 
 
@@ -87,37 +114,26 @@ def create_binary_image(image):
     :return: A classified image.
     """
     new_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    _, new_image = cv2.threshold(new_image, 225, 255, cv2.THRESH_BINARY_INV)
+    _, new_image = cv2.threshold(new_image, 225, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C)
     return new_image
 
 
-def transform_image(source_image, start_corners, end_corners):
-
+def transform_image(source_image, start_pos, end_pos):
+    """
+    This is where the magic happens. OpenCV provides the 2 functions required to
+    transform the image once the start and end corner coordinates are provided.
+    :param source_image:
+    :param start_pos:
+    :param end_pos:
+    :return:
+    """
     h, w = source_image.shape[:2]
-    H, _ = cv2.findHomography(start_corners, end_corners, method=cv2.RANSAC, ransacReprojThreshold=3.0)
-    print('\nThe homography matrix is: \n', H)
-    un_warped = cv2.warpPerspective(source_image, H, (w, h), flags=cv2.INTER_LINEAR)
-
-    # plot
-
-    f, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 8))
-    # f.subplots_adjust(hspace=.2, wspace=.05)
-    ax1.imshow(source_image)
-    ax1.set_title('Original Image')
-
-    x = [start_corners[0][0], start_corners[2][0], start_corners[3][0], start_corners[1][0], start_corners[0][0]]
-    y = [start_corners[0][1], start_corners[2][1], start_corners[3][1], start_corners[1][1], start_corners[0][1]]
-
-    ax2.imshow(source_image)
-    ax2.plot(x, y, color='yellow', linewidth=3)
-    ax2.set_ylim([h, 0])
-    ax2.set_xlim([0, w])
-    ax2.set_title('Target Area')
-
-    plt.show()
-    return un_warped
+    homography, _ = cv2.findHomography(start_pos, end_pos, method=cv2.RANSAC, ransacReprojThreshold=3.0)
+    transform = cv2.warpPerspective(source_image, homography, (w, h), flags=cv2.INTER_LINEAR)
+    return transform
 
 
+# The main process flow starts here.
 # Load an image and resize it.
 test_image = load_image('card3.jpg', 800, 600)
 
@@ -134,16 +150,18 @@ contours_restricted = sorted(contours, key=cv2.contourArea, reverse=True)[0]
 # Create images including contours and restricted contours.
 cv2.drawContours(contour_image_1, contours, -1, (0, 255, 0), 3)
 cv2.drawContours(contour_image_2, contours_restricted, -1, (0, 255, 0), 3)
-image_corners, corner_array = get_start_image_corners(corner_image, contours_restricted)
-
-# x = transform_image(test_image, corner_array, )
+image_with_corners, corner_array = get_start_image_corners(corner_image, contours_restricted)
+end_corners, end_height, end_width = get_end_image_corners(corner_array)
+transformed_image = transform_image(test_image, np.float32(corner_array), np.float32(end_corners))
 
 # Display all interim and final images.
 cv2.imshow('1: The original image', test_image)
 cv2.imshow('2: A threshold version of the image', threshold_image)
 cv2.imshow('3: The original image with contours added', contour_image_1)
 cv2.imshow('4: The original image with filtered contours', contour_image_2)
-cv2.imshow('5: The image with corners marked', image_corners)
+set_text(image_with_corners, corner_array)
+cv2.imshow('5: The image with corners marked', image_with_corners)
+cv2.imshow('6: The transformed image', transformed_image)
 
 # Print basic details of the transformation.
 print(f'Top line has a length of {get_line_length(corner_array, 0, 1)}')
